@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ADS-B Map Configurator</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #22263a;
+      --border: #2e3347;
+      --accent: #4f8ef7;
+      --accent-hover: #6ba3ff;
+      --text: #e0e4f0;
+      --text-muted: #7b82a0;
+      --success: #3ecf6e;
+      --radius: 6px;
+    }
+
+    html, body { height: 100%; overflow: hidden; font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
+
+    /* ── Header ── */
+    header {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--border);
+      height: 52px; flex-shrink: 0;
+    }
+    header h1 { font-size: 15px; font-weight: 600; white-space: nowrap; color: var(--text); }
+    header h1 span { color: var(--accent); }
+
+    #url-bar {
+      flex: 1; background: var(--surface2); border: 1px solid var(--border);
+      color: var(--text-muted); border-radius: var(--radius);
+      padding: 6px 10px; font-size: 12px; font-family: monospace;
+      outline: none; cursor: text; white-space: nowrap; overflow: hidden;
+      text-overflow: ellipsis; min-width: 0;
+    }
+    #url-bar:focus { border-color: var(--accent); color: var(--text); }
+
+    #copy-btn, #reset-btn {
+      padding: 6px 14px; border: none; border-radius: var(--radius); cursor: pointer; font-size: 13px;
+      font-weight: 500; white-space: nowrap; transition: background 0.15s;
+    }
+    #copy-btn { background: var(--accent); color: #fff; }
+    #copy-btn:hover { background: var(--accent-hover); }
+    #copy-btn.copied { background: var(--success); }
+    #reset-btn { background: var(--surface2); color: var(--text-muted); border: 1px solid var(--border); }
+    #reset-btn:hover { background: var(--border); color: var(--text); }
+
+    /* ── Body ── */
+    .app-body { display: flex; height: calc(100vh - 52px); overflow: hidden; }
+
+    /* ── Panel ── */
+    .panel {
+      width: 320px; flex-shrink: 0;
+      /* min-height:0 is required — without it flex children won't shrink below content size,
+         so overflow-y:auto never kicks in */
+      min-height: 0;
+      overflow-y: auto;
+      background: var(--surface); border-right: 1px solid var(--border);
+      padding: 12px; display: flex; flex-direction: column; gap: 8px;
+    }
+    .panel::-webkit-scrollbar { width: 6px; }
+    .panel::-webkit-scrollbar-track { background: transparent; }
+    .panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* ── Sections ── */
+    details { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; flex-shrink: 0; }
+    summary {
+      padding: 9px 12px; font-weight: 600; font-size: 13px; cursor: pointer;
+      list-style: none; display: flex; align-items: center; justify-content: space-between;
+      user-select: none; color: var(--text);
+    }
+    summary::-webkit-details-marker { display: none; }
+    summary::after { content: '›'; font-size: 16px; color: var(--text-muted); transform: rotate(90deg); display: inline-block; transition: transform 0.15s; }
+    details[open] summary::after { transform: rotate(270deg); }
+    summary:hover { background: rgba(255,255,255,0.03); }
+
+    .section-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--border); }
+    .section-note { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+
+    /* ── Form fields ── */
+    .field { display: flex; flex-direction: column; gap: 4px; }
+    .field label { font-size: 12px; color: var(--text-muted); font-weight: 500; }
+    .field label code { background: rgba(79,142,247,0.15); color: var(--accent); padding: 1px 4px; border-radius: 3px; font-size: 11px; }
+
+    input[type="text"], input[type="number"], input[type="date"], input[type="time"], select {
+      background: var(--bg); border: 1px solid var(--border); color: var(--text);
+      border-radius: var(--radius); padding: 6px 8px; font-size: 13px; width: 100%; outline: none;
+    }
+    input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus,
+    input[type="time"]:focus, select:focus { border-color: var(--accent); }
+    input[type="number"] { -moz-appearance: textfield; }
+    input[type="number"]::-webkit-outer-spin-button,
+    input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; }
+    input[type="date"], input[type="time"] { color-scheme: dark; }
+    select { cursor: pointer; }
+    select option { background: var(--surface2); }
+
+    /* slider + number combo */
+    .slider-row { display: flex; gap: 8px; align-items: center; }
+    .slider-row input[type="range"] { flex: 1; height: 4px; accent-color: var(--accent); cursor: pointer; background: transparent; }
+    .slider-row input[type="number"] { width: 64px; flex-shrink: 0; }
+
+    /* checkbox row */
+    .check-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+    .check-row input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; flex-shrink: 0; }
+    .check-row label { font-size: 13px; cursor: pointer; color: var(--text); line-height: 1.4; }
+    .check-row label code { background: rgba(79,142,247,0.15); color: var(--accent); padding: 1px 4px; border-radius: 3px; font-size: 11px; }
+
+    /* color row */
+    .color-row { display: flex; gap: 8px; align-items: center; }
+    .color-row input[type="color"] { width: 36px; height: 30px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); padding: 2px; cursor: pointer; flex-shrink: 0; }
+    .color-row input[type="text"] { flex: 1; font-family: monospace; }
+    .color-enabled { display: flex; align-items: center; gap: 8px; }
+    .color-enabled input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; flex-shrink: 0; }
+
+    /* two-column layout for coord pairs and similar */
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+    /* ── Map ── */
+    .map-area { flex: 1; position: relative; min-width: 0; }
+    .map-area iframe { width: 100%; height: 100%; border: none; display: block; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>ADS-B <span>Map Configurator</span></h1>
+  <input type="text" id="url-bar" readonly value="https://globe.adsbexchange.com/">
+  <button id="reset-btn">Reset</button>
+  <button id="copy-btn">Copy URL</button>
+</header>
+
+<div class="app-body">
+  <!-- ── Settings Panel ── -->
+  <aside class="panel">
+
+    <!-- Navigation -->
+    <details open>
+      <summary>Navigation</summary>
+      <div class="section-body">
+        <div class="two-col">
+          <div class="field">
+            <label><code>lat</code> Latitude</label>
+            <input type="number" id="p-lat" placeholder="e.g. 40.712" step="0.001">
+          </div>
+          <div class="field">
+            <label><code>lon</code> Longitude</label>
+            <input type="number" id="p-lon" placeholder="e.g. -74.006" step="0.001">
+          </div>
+        </div>
+        <div class="field">
+          <label><code>zoom</code> Zoom level (1–20)</label>
+          <div class="slider-row">
+            <input type="range" id="p-zoom-range" min="1" max="20" value="7">
+            <input type="number" id="p-zoom" min="1" max="20" value="7">
+          </div>
+        </div>
+        <div class="field">
+          <label><code>airport</code> Center on airport</label>
+          <input type="text" id="p-airport" placeholder="e.g. KJFK">
+        </div>
+      </div>
+    </details>
+
+    <!-- Aircraft Selection -->
+    <details open>
+      <summary>Aircraft Selection</summary>
+      <div class="section-body">
+        <div class="field">
+          <label><code>icao</code> Select &amp; isolate aircraft</label>
+          <input type="text" id="p-icao" placeholder="e.g. A1B2C3 (comma-sep)">
+        </div>
+        <div class="check-row">
+          <input type="checkbox" id="p-noIsolation">
+          <label for="p-noIsolation"><code>noIsolation</code> Show all aircraft alongside selected</label>
+        </div>
+        <div class="field">
+          <label><code>icaoFilter</code> Show only these aircraft</label>
+          <input type="text" id="p-icaoFilter" placeholder="e.g. A1B2C3,D4E5F6">
+        </div>
+        <div class="field">
+          <label><code>icaoBlacklist</code> Never show these aircraft</label>
+          <input type="text" id="p-icaoBlacklist" placeholder="e.g. A1B2C3,D4E5F6">
+        </div>
+        <div class="field">
+          <label><code>reg</code> Select by registration</label>
+          <input type="text" id="p-reg" placeholder="e.g. N12345 (comma-sep)">
+        </div>
+      </div>
+    </details>
+
+    <!-- Filters -->
+    <details>
+      <summary>Filters</summary>
+      <div class="section-body">
+        <div class="two-col">
+          <div class="field">
+            <label><code>filterAltMin</code> Min alt (ft)</label>
+            <input type="number" id="p-filterAltMin" placeholder="e.g. 0">
+          </div>
+          <div class="field">
+            <label><code>filterAltMax</code> Max alt (ft)</label>
+            <input type="number" id="p-filterAltMax" placeholder="e.g. 40000">
+          </div>
+        </div>
+        <div class="field">
+          <label><code>filterCallSign</code> Callsign (regex)</label>
+          <input type="text" id="p-filterCallSign" placeholder="e.g. ^UAL">
+        </div>
+        <div class="field">
+          <label><code>filterType</code> Aircraft type code</label>
+          <input type="text" id="p-filterType" placeholder="e.g. B738">
+        </div>
+        <div class="field">
+          <label><code>filterDescription</code> Type description</label>
+          <input type="text" id="p-filterDescription" placeholder="e.g. L2J">
+        </div>
+        <div class="field">
+          <label><code>filterIcao</code> ICAO code (regex)</label>
+          <input type="text" id="p-filterIcao" placeholder="e.g. ^A">
+        </div>
+        <div class="field">
+          <label><code>filterMaxRange</code> Max track distance</label>
+          <input type="number" id="p-filterMaxRange" placeholder="e.g. 250" min="0">
+        </div>
+        <div class="field">
+          <label><code>filterSources</code> Data source</label>
+          <select id="p-filterSources">
+            <option value="">— any —</option>
+            <option value="adsb">adsb</option>
+            <option value="uat">uat</option>
+            <option value="adsr">adsr</option>
+            <option value="mlat">mlat</option>
+            <option value="tisb">tisb</option>
+            <option value="modeS">modeS</option>
+          </select>
+        </div>
+        <div class="field">
+          <label><code>filterDbFlag</code> Database flag</label>
+          <select id="p-filterDbFlag">
+            <option value="">— any —</option>
+            <option value="military">military</option>
+            <option value="pia">pia</option>
+            <option value="ladd">ladd</option>
+          </select>
+        </div>
+      </div>
+    </details>
+
+    <!-- Sort -->
+    <details>
+      <summary>Sort</summary>
+      <div class="section-body">
+        <div class="field">
+          <label><code>sortBy</code> Sort column</label>
+          <select id="p-sortBy">
+            <option value="">— default —</option>
+            <option value="icao">icao</option>
+            <option value="flag">flag</option>
+            <option value="flight">flight</option>
+            <option value="registration">registration</option>
+            <option value="aircraft_type">aircraft_type</option>
+            <option value="squawk">squawk</option>
+            <option value="altitude">altitude</option>
+            <option value="speed">speed</option>
+            <option value="vert_rate">vert_rate</option>
+            <option value="distance">distance</option>
+            <option value="track">track</option>
+            <option value="msgs">msgs</option>
+            <option value="seen">seen</option>
+            <option value="rssi">rssi</option>
+            <option value="lat">lat</option>
+            <option value="lon">lon</option>
+            <option value="data_source">data_source</option>
+            <option value="military">military</option>
+            <option value="noSort">noSort</option>
+          </select>
+        </div>
+        <div class="check-row">
+          <input type="checkbox" id="p-sortByReverse">
+          <label for="p-sortByReverse"><code>sortByReverse</code> Reverse sort order</label>
+        </div>
+      </div>
+    </details>
+
+    <!-- Display Toggles -->
+    <details open>
+      <summary>Display Toggles</summary>
+      <div class="section-body">
+        <div class="check-row"><input type="checkbox" id="p-hideSideBar"><label for="p-hideSideBar"><code>hideSideBar</code> Hide map sidebar</label></div>
+        <div class="check-row"><input type="checkbox" id="p-hideButtons"><label for="p-hideButtons"><code>hideButtons</code> Hide all buttons</label></div>
+        <div class="check-row"><input type="checkbox" id="p-kiosk"><label for="p-kiosk"><code>kiosk</code> Kiosk mode (trails + no buttons)</label></div>
+        <div class="check-row"><input type="checkbox" id="p-mil"><label for="p-mil"><code>mil</code> Military / interesting filter</label></div>
+        <div class="check-row"><input type="checkbox" id="p-atcStyle"><label for="p-atcStyle"><code>atcStyle</code> ATC display style</label></div>
+        <div class="check-row"><input type="checkbox" id="p-nowebgl"><label for="p-nowebgl"><code>nowebgl</code> Force software rendering (no WebGL)</label></div>
+        <div class="check-row"><input type="checkbox" id="p-autoselect"><label for="p-autoselect"><code>autoselect</code> Keep closest aircraft selected</label></div>
+        <div class="check-row"><input type="checkbox" id="p-centerReceiver"><label for="p-centerReceiver"><code>centerReceiver</code> Center on receiver position</label></div>
+        <div class="check-row"><input type="checkbox" id="p-lockDotCentered"><label for="p-lockDotCentered"><code>lockDotCentered</code> Lock receiver dot at center</label></div>
+        <div class="check-row"><input type="checkbox" id="p-tableInView"><label for="p-tableInView"><code>tableInView</code> Table shows only in-view aircraft</label></div>
+        <div class="check-row"><input type="checkbox" id="p-screenshot"><label for="p-screenshot"><code>screenshot</code> Freeze after first load</label></div>
+        <div class="check-row"><input type="checkbox" id="p-mobile"><label for="p-mobile"><code>mobile</code> Force mobile view</label></div>
+        <div class="check-row"><input type="checkbox" id="p-desktop"><label for="p-desktop"><code>desktop</code> Force desktop view</label></div>
+      </div>
+    </details>
+
+    <!-- Labels -->
+    <details>
+      <summary>Labels</summary>
+      <div class="section-body">
+        <div class="check-row"><input type="checkbox" id="p-enableLabels"><label for="p-enableLabels"><code>enableLabels</code> Show aircraft labels</label></div>
+        <div class="field">
+          <label><code>extendedLabels</code> Label type</label>
+          <select id="p-extendedLabels">
+            <option value="">— default —</option>
+            <option value="0">0</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+          </select>
+        </div>
+        <div class="check-row"><input type="checkbox" id="p-trackLabels"><label for="p-trackLabels"><code>trackLabels</code> Show track labels</label></div>
+        <div class="check-row"><input type="checkbox" id="p-labelsGeom"><label for="p-labelsGeom"><code>labelsGeom</code> Geometric altitude in track labels</label></div>
+        <div class="check-row"><input type="checkbox" id="p-geomEGM"><label for="p-geomEGM"><code>geomEGM</code> Geometric altitudes in EGM96</label></div>
+        <div class="field">
+          <label><code>routeDisplay</code> Route label content</label>
+          <select id="p-routeDisplay">
+            <option value="">— default —</option>
+            <option value="iata">iata</option>
+            <option value="icao">icao</option>
+            <option value="city">city</option>
+            <option value="iata,icao">iata + icao</option>
+            <option value="iata,city">iata + city</option>
+            <option value="icao,city">icao + city</option>
+            <option value="iata,icao,city">iata + icao + city</option>
+          </select>
+        </div>
+      </div>
+    </details>
+
+    <!-- Tracks & Trails -->
+    <details>
+      <summary>Tracks &amp; Trails</summary>
+      <div class="section-body">
+        <div class="field">
+          <label><code>tempTrails</code> Temporary trail length (seconds)</label>
+          <input type="number" id="p-tempTrails" placeholder="e.g. 30" min="0">
+        </div>
+        <div class="check-row"><input type="checkbox" id="p-allTracks"><label for="p-allTracks"><code>allTracks</code> Show all tracks (like pressing T)</label></div>
+        <div class="check-row"><input type="checkbox" id="p-noVanish"><label for="p-noVanish"><code>noVanish</code> Persistence mode (no vanishing)</label></div>
+      </div>
+    </details>
+
+    <!-- Rendering -->
+    <details>
+      <summary>Rendering</summary>
+      <div class="section-body">
+        <div class="field">
+          <label><code>scale</code> Overall scale</label>
+          <input type="number" id="p-scale" placeholder="e.g. 1.0" step="0.1" min="0.1">
+        </div>
+        <div class="field">
+          <label><code>iconScale</code> Icon scale (multiplies with scale)</label>
+          <input type="number" id="p-iconScale" placeholder="e.g. 1.0" step="0.1" min="0.1">
+        </div>
+        <div class="field">
+          <label><code>labelScale</code> Label scale (multiplies with scale)</label>
+          <input type="number" id="p-labelScale" placeholder="e.g. 1.0" step="0.1" min="0.1">
+        </div>
+        <div class="field">
+          <label><code>sidebarWidth</code> Sidebar width (px)</label>
+          <input type="number" id="p-sidebarWidth" placeholder="e.g. 340" min="0">
+        </div>
+        <div class="field">
+          <label><code>mapOrientation</code> Map rotation (0–360°)</label>
+          <div class="slider-row">
+            <input type="range" id="p-mapOrientation-range" min="0" max="360" value="0">
+            <input type="number" id="p-mapOrientation" min="0" max="360" value="" placeholder="0">
+          </div>
+        </div>
+        <div class="field">
+          <label><code>mapDim</code> Brightness offset (–1 to 1)</label>
+          <input type="number" id="p-mapDim" placeholder="e.g. 0.5" step="0.1" min="-1" max="1">
+        </div>
+        <div class="field">
+          <label><code>mapContrast</code> Contrast offset (–1 to 1)</label>
+          <input type="number" id="p-mapContrast" placeholder="e.g. 0.5" step="0.1" min="-1" max="1">
+        </div>
+        <div class="field">
+          <label><code>baseMap</code> Map tile layer</label>
+          <input type="text" id="p-baseMap" placeholder="as defined in config.js">
+        </div>
+        <div class="field">
+          <label><code>overlays</code> Overlay layers (comma-sep)</label>
+          <input type="text" id="p-overlays" placeholder="as defined in config.js">
+        </div>
+        <div class="field">
+          <label><code>rangeRings</code> Range rings</label>
+          <select id="p-rangeRings">
+            <option value="">— default —</option>
+            <option value="1">On</option>
+            <option value="0">Off</option>
+          </select>
+        </div>
+        <div class="field">
+          <label><code>altitudeChart</code> Altitude chart</label>
+          <select id="p-altitudeChart">
+            <option value="">— default —</option>
+            <option value="1">On</option>
+            <option value="0">Off</option>
+          </select>
+        </div>
+      </div>
+    </details>
+
+    <!-- Colors -->
+    <details>
+      <summary>Colors</summary>
+      <div class="section-body">
+        <div class="field">
+          <label><code>monochromeMarkers</code> Marker color</label>
+          <div class="color-enabled">
+            <input type="checkbox" id="p-monochromeMarkers-en">
+            <div class="color-row" style="flex:1">
+              <input type="color" id="p-monochromeMarkers-picker" value="#ffffff" disabled>
+              <input type="text" id="p-monochromeMarkers" placeholder="#ffffff" maxlength="7" disabled>
+            </div>
+          </div>
+        </div>
+        <div class="field">
+          <label><code>monochromeTracks</code> Track color</label>
+          <div class="color-enabled">
+            <input type="checkbox" id="p-monochromeTracks-en">
+            <div class="color-row" style="flex:1">
+              <input type="color" id="p-monochromeTracks-picker" value="#ffffff" disabled>
+              <input type="text" id="p-monochromeTracks" placeholder="#ffffff" maxlength="7" disabled>
+            </div>
+          </div>
+        </div>
+        <div class="field">
+          <label><code>outlineColor</code> Icon outline color (no WebGL)</label>
+          <div class="color-enabled">
+            <input type="checkbox" id="p-outlineColor-en">
+            <div class="color-row" style="flex:1">
+              <input type="color" id="p-outlineColor-picker" value="#ffffff" disabled>
+              <input type="text" id="p-outlineColor" placeholder="#ffffff" maxlength="7" disabled>
+            </div>
+          </div>
+        </div>
+        <div class="field">
+          <label><code>outlineWidth</code> Icon outline width (no WebGL)</label>
+          <input type="number" id="p-outlineWidth" placeholder="e.g. 1" min="0" step="0.5">
+        </div>
+      </div>
+    </details>
+
+    <!-- Heatmap -->
+    <details>
+      <summary>Heatmap</summary>
+      <div class="section-body">
+        <p class="section-note">Requires readsb --heatmap to be configured on the server.</p>
+        <div class="field">
+          <label><code>heatmap</code> Enable heatmap (max dots)</label>
+          <input type="number" id="p-heatmap" placeholder="e.g. 32000" min="0">
+        </div>
+        <div class="field">
+          <label><code>heatDuration</code> History hours (default 24)</label>
+          <input type="number" id="p-heatDuration" placeholder="24" min="0">
+        </div>
+        <div class="field">
+          <label><code>heatEnd</code> Shift window into past (hours)</label>
+          <input type="number" id="p-heatEnd" placeholder="0" min="0">
+        </div>
+        <div class="field">
+          <label><code>heatRadius</code> Dot size</label>
+          <input type="number" id="p-heatRadius" placeholder="e.g. 3" min="0">
+        </div>
+        <div class="field">
+          <label><code>heatAlpha</code> Dot opacity (0–1)</label>
+          <input type="number" id="p-heatAlpha" placeholder="e.g. 0.5" step="0.1" min="0" max="1">
+        </div>
+        <div class="field">
+          <label><code>heatWeight</code> Dot weight (realHeat)</label>
+          <input type="number" id="p-heatWeight" placeholder="e.g. 1.0" step="0.1" min="0">
+        </div>
+        <div class="field">
+          <label><code>heatBlur</code> Dot blur (realHeat)</label>
+          <input type="number" id="p-heatBlur" placeholder="e.g. 2" min="0">
+        </div>
+        <div class="check-row"><input type="checkbox" id="p-realHeat"><label for="p-realHeat"><code>realHeat</code> Real heatmap (not dots)</label></div>
+        <div class="check-row"><input type="checkbox" id="p-heatManualRedraw"><label for="p-heatManualRedraw"><code>heatManualRedraw</code> Redraw only on R keypress</label></div>
+        <div class="check-row"><input type="checkbox" id="p-heatFilters"><label for="p-heatFilters"><code>heatFilters</code> Advanced filters (experimental)</label></div>
+      </div>
+    </details>
+
+    <!-- Replay -->
+    <details>
+      <summary>Replay</summary>
+      <div class="section-body">
+        <p class="section-note">Requires readsb globe-history on the server.</p>
+        <div class="check-row"><input type="checkbox" id="p-replay"><label for="p-replay"><code>replay</code> Enable replay</label></div>
+        <div class="field">
+          <label><code>replaySpeed</code> Replay speed multiplier</label>
+          <input type="number" id="p-replaySpeed" placeholder="e.g. 2" min="0" step="0.5">
+        </div>
+        <div class="check-row"><input type="checkbox" id="p-replayPaused"><label for="p-replayPaused"><code>replayPaused</code> Start replay paused</label></div>
+      </div>
+    </details>
+
+    <!-- Show Trace -->
+    <details>
+      <summary>Show Trace</summary>
+      <div class="section-body">
+        <p class="section-note">Requires readsb globe-history. Use with <code>icao</code> to select an aircraft.</p>
+        <div class="field">
+          <label><code>showTrace</code> Show trace for date</label>
+          <input type="date" id="p-showTrace">
+        </div>
+        <div class="two-col">
+          <div class="field">
+            <label><code>startTime</code> Start (UTC)</label>
+            <input type="time" id="p-startTime" step="1">
+          </div>
+          <div class="field">
+            <label><code>endTime</code> End (UTC)</label>
+            <input type="time" id="p-endTime" step="1">
+          </div>
+        </div>
+        <div class="field">
+          <label><code>timestamp</code> Details at UNIX timestamp</label>
+          <input type="number" id="p-timestamp" placeholder="e.g. 1700000000">
+        </div>
+      </div>
+    </details>
+
+    <!-- Site Location -->
+    <details>
+      <summary>Site Location</summary>
+      <div class="section-body">
+        <p class="section-note">Override the receiver position used for range rings and distance calculations.</p>
+        <div class="two-col">
+          <div class="field">
+            <label><code>SiteLat</code> Latitude</label>
+            <input type="number" id="p-SiteLat" placeholder="e.g. 40.712" step="0.001">
+          </div>
+          <div class="field">
+            <label><code>SiteLon</code> Longitude</label>
+            <input type="number" id="p-SiteLon" placeholder="e.g. -74.006" step="0.001">
+          </div>
+        </div>
+      </div>
+    </details>
+
+  </aside>
+
+  <!-- ── Map ── -->
+  <main class="map-area">
+    <iframe id="map-frame" src="https://globe.adsbexchange.com/" allowfullscreen></iframe>
+  </main>
+</div>
+
+<script>
+  const BASE = 'https://globe.adsbexchange.com/';
+
+  function debounce(fn, ms) {
+    let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+  }
+
+  function buildURL() {
+    const val = id => document.getElementById(id)?.value.trim() ?? '';
+    const num = id => { const v = val(id); return v !== '' ? v : null; };
+    const chk = id => document.getElementById(id)?.checked ?? false;
+
+    const parts = [];
+    const add   = (k, v) => parts.push(v === '' ? k : `${k}=${encodeURIComponent(v)}`);
+    const flag  = (k, id) => { if (chk(id ?? 'p-' + k)) add(k, ''); };
+    const text  = (k, id) => { const v = val(id ?? 'p-' + k); if (v) add(k, v); };
+    const numb  = (k, id) => { const v = num(id ?? 'p-' + k); if (v !== null) add(k, v); };
+
+    // Navigation
+    numb('lat');
+    numb('lon');
+    const zoom = num('p-zoom');
+    if (zoom !== null && zoom !== '7') add('zoom', zoom);
+    text('airport');
+
+    // Aircraft selection
+    text('icao');
+    flag('noIsolation');
+    text('icaoFilter');
+    text('icaoBlacklist');
+    text('reg');
+
+    // Filters
+    numb('filterAltMin');
+    numb('filterAltMax');
+    text('filterCallSign');
+    text('filterType');
+    text('filterDescription');
+    text('filterIcao');
+    numb('filterMaxRange');
+    text('filterSources');
+    text('filterDbFlag');
+
+    // Sort
+    text('sortBy');
+    flag('sortByReverse');
+
+    // Display toggles
+    flag('hideSideBar');
+    flag('hideButtons');
+    flag('kiosk');
+    flag('mil');
+    flag('atcStyle');
+    flag('nowebgl');
+    flag('autoselect');
+    flag('centerReceiver');
+    flag('lockDotCentered');
+    flag('tableInView');
+    flag('screenshot');
+    flag('mobile');
+    flag('desktop');
+
+    // Labels
+    flag('enableLabels');
+    text('extendedLabels');
+    flag('trackLabels');
+    flag('labelsGeom');
+    flag('geomEGM');
+    text('routeDisplay');
+
+    // Tracks & trails
+    numb('tempTrails');
+    flag('allTracks');
+    flag('noVanish');
+
+    // Rendering
+    numb('scale');
+    numb('iconScale');
+    numb('labelScale');
+    numb('sidebarWidth');
+    const orient = num('p-mapOrientation');
+    if (orient !== null && orient !== '0') add('mapOrientation', orient);
+    numb('mapDim');
+    numb('mapContrast');
+    text('baseMap');
+    text('overlays');
+    text('rangeRings');
+    text('altitudeChart');
+
+    // Colors
+    ['monochromeMarkers', 'monochromeTracks', 'outlineColor'].forEach(name => {
+      if (chk('p-' + name + '-en')) {
+        const hex = val('p-' + name).replace('#', '') || val('p-' + name + '-picker').replace('#', '');
+        if (hex) add(name, hex);
+      }
+    });
+    numb('outlineWidth');
+
+    // Heatmap
+    numb('heatmap');
+    numb('heatDuration');
+    numb('heatEnd');
+    numb('heatRadius');
+    numb('heatAlpha');
+    numb('heatWeight');
+    numb('heatBlur');
+    flag('realHeat');
+    flag('heatManualRedraw');
+    flag('heatFilters');
+
+    // Replay
+    flag('replay');
+    numb('replaySpeed');
+    flag('replayPaused');
+
+    // Show trace
+    text('showTrace');
+    const st = val('p-startTime'); if (st) add('startTime', st);
+    const et = val('p-endTime');   if (et) add('endTime', et);
+    numb('timestamp');
+
+    // Site location
+    numb('SiteLat');
+    numb('SiteLon');
+
+    return BASE + (parts.length ? '?' + parts.join('&') : '');
+  }
+
+  const frame  = document.getElementById('map-frame');
+  const urlBar = document.getElementById('url-bar');
+
+  const applyURL = debounce(() => {
+    const url = buildURL();
+    urlBar.value = url;
+    frame.src = url;
+  }, 350);
+
+  document.querySelector('.panel').addEventListener('input',  applyURL);
+  document.querySelector('.panel').addEventListener('change', applyURL);
+
+  // Slider ↔ number sync
+  function syncPair(rangeId, numberId) {
+    const range  = document.getElementById(rangeId);
+    const number = document.getElementById(numberId);
+    range.addEventListener('input', () => { number.value = range.value; });
+    number.addEventListener('input', () => {
+      const v = parseFloat(number.value);
+      if (!isNaN(v)) range.value = Math.min(Math.max(v, +range.min), +range.max);
+    });
+  }
+  syncPair('p-zoom-range', 'p-zoom');
+  syncPair('p-mapOrientation-range', 'p-mapOrientation');
+
+  // Color enable/disable + picker ↔ text sync
+  ['monochromeMarkers', 'monochromeTracks', 'outlineColor'].forEach(name => {
+    const enCb   = document.getElementById('p-' + name + '-en');
+    const picker = document.getElementById('p-' + name + '-picker');
+    const text   = document.getElementById('p-' + name);
+
+    enCb.addEventListener('change', () => {
+      picker.disabled = !enCb.checked;
+      text.disabled   = !enCb.checked;
+    });
+    picker.addEventListener('input', () => { text.value = picker.value; });
+    text.addEventListener('input', () => {
+      const raw = text.value.replace('#', '');
+      if (/^[0-9a-fA-F]{6}$/.test(raw)) picker.value = '#' + raw;
+    });
+  });
+
+  // Reset button — clears all inputs, wipes map localStorage, then reloads clean
+  document.getElementById('reset-btn').addEventListener('click', () => {
+    document.querySelectorAll('.panel input[type="text"], .panel input[type="number"], .panel input[type="date"], .panel input[type="time"]')
+      .forEach(el => { el.value = ''; });
+    document.querySelectorAll('.panel input[type="checkbox"]')
+      .forEach(el => { el.checked = false; });
+    document.querySelectorAll('.panel select')
+      .forEach(el => { el.selectedIndex = 0; });
+    document.getElementById('p-zoom').value = '7';
+    document.getElementById('p-zoom-range').value = '7';
+    ['monochromeMarkers', 'monochromeTracks', 'outlineColor'].forEach(name => {
+      document.getElementById('p-' + name + '-picker').disabled = true;
+      document.getElementById('p-' + name).disabled = true;
+    });
+    urlBar.value = BASE;
+    // Step 1: load ?reset so tar1090 clears its localStorage
+    frame.src = BASE + '?reset';
+    // Step 2: once that's done, load the clean base URL
+    frame.addEventListener('load', function onLoad() {
+      frame.removeEventListener('load', onLoad);
+      frame.src = BASE;
+    });
+  });
+
+  // Copy URL button
+  document.getElementById('copy-btn').addEventListener('click', () => {
+    const btn = document.getElementById('copy-btn');
+    navigator.clipboard.writeText(urlBar.value).then(() => {
+      btn.textContent = 'Copied!';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = 'Copy URL'; btn.classList.remove('copied'); }, 2000);
+    });
+  });
+</script>
+</body>
+</html>
